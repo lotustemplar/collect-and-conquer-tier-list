@@ -58,10 +58,10 @@ main { max-width: 1920px; margin: 0 auto; padding: 24px clamp(20px, 4vw, 72px) 4
 .rank-slot.is-over, .table-honorable.is-over, .pool-grid.is-over { border-color: var(--color-accent); background: rgba(201, 169, 110, .13); }
 .rank-number { align-self: stretch; display: grid; place-items: center; color: var(--color-accent); font-size: .72rem; font-weight: 800; letter-spacing: .08em; }
 .slot-placeholder { padding: 0 10px; color: rgba(185, 183, 176, .45); font-size: .73rem; text-transform: uppercase; letter-spacing: .08em; }
-.draggable-card { position: relative; display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: center; gap: 9px; min-width: 0; touch-action: none; cursor: grab; }
+.draggable-card { position: relative; display: block; min-width: 0; touch-action: none; cursor: grab; }
 .draggable-card:active { cursor: grabbing; }
 .draggable-card.is-dragging { opacity: .35; }
-.card-face-button { display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: center; gap: 9px; min-width: 0; padding: 0; border: 0; background: none; cursor: pointer; text-align: left; }
+.card-face-button { display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: center; gap: 9px; width: 100%; min-width: 0; padding: 0; border: 0; background: none; cursor: pointer; text-align: left; }
 .card-face-button img { display: block; width: 52px; aspect-ratio: 63 / 88; object-fit: cover; border-radius: 4px; box-shadow: 0 3px 8px rgba(0,0,0,.35); }
 .card-name { min-width: 0; overflow: hidden; color: var(--color-paper); font-size: .89rem; font-weight: 650; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
 .card-face-button:hover .card-name { color: var(--color-accent-bright); }

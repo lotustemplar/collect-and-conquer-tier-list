@@ -142,17 +142,20 @@ const canonical = chooseCanonical(rawCards)
 const previous = await readPrevious()
 const previousById = new Map((previous.cards || []).map((card) => [card.id, card]))
 const normalized = canonical.map(normalizeCard)
+const syncedIds = new Set(normalized.map((card) => card.id))
+const cachedExtras = (previous.cards || []).filter((card) => !SET_CODES.includes(card.set) && !syncedIds.has(card.id))
+const allCards = [...normalized, ...cachedExtras]
 let downloaded = 0
 let reused = 0
 let failed = 0
 const failures = []
 
-for (const card of normalized) {
+for (const card of allCards) {
   const previousCard = previousById.get(card.id)
   const targets = card.faces?.length
     ? card.faces.map((face) => ({ uri: face.sourceImageUri, filename: path.basename(face.localImage) }))
     : [{ uri: card.sourceImageUri, filename: path.basename(card.localImage) }]
-  for (const target of targets) {
+  for (const target of [...new Map(targets.map((item) => [item.filename, item])).values()]) {
     try {
       const previousFace = previousCard?.faces?.find((face) => face.localImage.endsWith(target.filename))
       const result = await downloadImage(target.uri, target.filename, previousFace?.sourceImageUri || previousCard?.sourceImageUri)
@@ -168,10 +171,10 @@ for (const card of normalized) {
 await fs.writeFile(OUTPUT, `${JSON.stringify({
   generatedAt: new Date().toISOString(),
   sourceSets: SET_CODES,
-  cards: normalized,
+  cards: allCards,
 }, null, 2)}\n`)
 
-console.log(`Cards found: ${normalized.length}`)
+console.log(`Cards found: ${allCards.length}`)
 console.log(`New images downloaded: ${downloaded}`)
 console.log(`Images reused: ${reused}`)
 console.log(`Failures: ${failed}`)

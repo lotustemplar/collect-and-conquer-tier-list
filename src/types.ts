@@ -29,6 +29,7 @@ export type RankingTable = {
   compact: boolean
   ranked: Array<string | null>
   honorable: string[]
+  staged: string[]
 }
 
 export type Snapshot = {

@@ -66,6 +66,7 @@ function buildInitialTables(cards: Card[]): RankingTable[] {
     honorable: [...preset.honorable.map((name) => resolveName(name, cards)), ...(preset.id === 'friends-ranking' ? cards.filter((card) => card.typeLine.includes('Elder Sphinx')).map((card) => card.id) : [])]
       .filter((id): id is string => Boolean(id))
       .filter((id, index, values) => values.indexOf(id) === index),
+    staged: [],
   }))
 }
 
@@ -79,12 +80,13 @@ function normalizeTables(value: unknown, cards: Card[]): RankingTable[] | null {
     compact: table.compact === true,
     ranked: Array.from({ length: 10 }, (_, index) => valid.has(table.ranked?.[index] || '') ? table.ranked[index] : null),
     honorable: Array.isArray(table.honorable) ? table.honorable.filter((id): id is string => valid.has(id)) : [],
+    staged: Array.isArray(table.staged) ? table.staged.filter((id): id is string => valid.has(id)) : [],
   }))
   return next.length ? next : null
 }
 
 function uniqueInTable(table: RankingTable) {
-  const ids = table.ranked.filter((id): id is string => Boolean(id)).concat(table.honorable)
+  const ids = table.ranked.filter((id): id is string => Boolean(id)).concat(table.honorable, table.staged)
   return new Set(ids)
 }
 
@@ -93,6 +95,7 @@ function removeCard(table: RankingTable, cardId: string) {
     ...table,
     ranked: table.ranked.map((id) => id === cardId ? null : id),
     honorable: table.honorable.filter((id) => id !== cardId),
+    staged: table.staged.filter((id) => id !== cardId),
   }
 }
 
@@ -121,6 +124,24 @@ function cardImage(card: Card, faceIndex = 0) {
   return `${BASE.replace(/\/$/, '')}${(card.faces?.[faceIndex]?.localImage || card.localImage).replace(/^\//, '/')}`
 }
 
+function parseCardNames(input: string, cards: Card[]) {
+  const knownNames = cards.flatMap((card) => [card.name, ...(card.faces?.map((face) => face.name) || [])]).sort((a, b) => b.length - a.length)
+  const output: string[] = []
+  for (const sourceLine of input.split(/\r?\n/)) {
+    const line = sourceLine.replace(/^\s*(?:\d+\s*[.)]|[-*•])\s*/, '').trim().replace(/[;,]+$/, '').trim()
+    if (!line) continue
+    const matches = knownNames.filter((name) => line.toLowerCase().includes(name.toLowerCase()))
+    if (matches.length) {
+      output.push(...matches.sort((a, b) => line.toLowerCase().indexOf(a.toLowerCase()) - line.toLowerCase().indexOf(b.toLowerCase())))
+    } else if (line.includes(',')) {
+      output.push(...line.split(',').map((name) => name.trim()).filter(Boolean))
+    } else {
+      output.push(line)
+    }
+  }
+  return [...new Set(output)]
+}
+
 function App() {
   const [cards, setCards] = useState<Card[]>([])
   const [tables, setTables] = useState<RankingTable[]>([])
@@ -134,6 +155,10 @@ function App() {
   const [modalCard, setModalCard] = useState<Card | null>(null)
   const [modalFace, setModalFace] = useState(0)
   const [message, setMessage] = useState('')
+  const [addForTable, setAddForTable] = useState<string | null>(null)
+  const [addText, setAddText] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [addResult, setAddResult] = useState<{ notFound: string[]; errors: string[] } | null>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 7 } }))
 
   useEffect(() => {
@@ -247,14 +272,75 @@ function App() {
     const preset = PRESETS.find((item) => item.id === id)
     const table = tables.find((item) => item.id === id)
     if (!preset || !table || !window.confirm(`Reset ${table.title}?`)) return
-    const restored: RankingTable = { ...table, ranked: Array.from({ length: 10 }, (_, index) => resolveName(preset.ranked[index] || '', cards)), honorable: [...preset.honorable.map((name) => resolveName(name, cards)), ...(preset.id === 'friends-ranking' ? cards.filter((card) => card.typeLine.includes('Elder Sphinx')).map((card) => card.id) : [])].filter((value): value is string => Boolean(value)).filter((value, index, values) => values.indexOf(value) === index) }
+    const restored: RankingTable = { ...table, ranked: Array.from({ length: 10 }, (_, index) => resolveName(preset.ranked[index] || '', cards)), honorable: [...preset.honorable.map((name) => resolveName(name, cards)), ...(preset.id === 'friends-ranking' ? cards.filter((card) => card.typeLine.includes('Elder Sphinx')).map((card) => card.id) : [])].filter((value): value is string => Boolean(value)).filter((value, index, values) => values.indexOf(value) === index), staged: [] }
     commit(tables.map((item) => item.id === id ? restored : item), 'Reset table')
+  }
+
+  function clearTable(id: string) {
+    const table = tables.find((item) => item.id === id)
+    if (!table || !window.confirm(`Clear "${table.title}"?\n\nThis will remove all cards from this table only.`)) return
+    commit(tables.map((item) => item.id === id ? { ...item, ranked: Array(10).fill(null), honorable: [], staged: [] } : item), 'Cleared table')
+  }
+
+  function clearStaged(id: string) {
+    const table = tables.find((item) => item.id === id)
+    if (!table || !table.staged.length || !window.confirm(`Clear staged cards from "${table.title}"?`)) return
+    updateTable(id, (item) => ({ ...item, staged: [] }), 'Cleared staged cards')
+  }
+
+  async function addCardsToTable(id: string) {
+    const table = tables.find((item) => item.id === id)
+    if (!table) return
+    const requested = parseCardNames(addText, cards)
+    if (!requested.length) return
+    setAdding(true)
+    setAddResult(null)
+    const existing = uniqueInTable(table)
+    const localIds: string[] = []
+    const missing: string[] = []
+    const duplicates: string[] = []
+    for (const name of requested) {
+      const idForCard = resolveName(name, cards)
+      if (!idForCard) missing.push(name)
+      else if (existing.has(idForCard)) duplicates.push(name)
+      else localIds.push(idForCard)
+    }
+    let fetchedCards: Card[] = []
+    let notFound = [...missing]
+    const errors: string[] = []
+    if (missing.length && import.meta.env.DEV) {
+      try {
+        const response = await fetch('/api/cards/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ names: missing }) })
+        const result = await response.json() as { cards?: Card[]; notFound?: string[]; errors?: Array<{ requested: string; message: string }> }
+        if (!response.ok) throw new Error(result.errors?.[0]?.message || 'Local card cache unavailable')
+        fetchedCards = result.cards || []
+        notFound = result.notFound || []
+        errors.push(...(result.errors || []).map((item) => `${item.requested}: ${item.message}`))
+        setCards((current) => [...current, ...fetchedCards.filter((card) => !current.some((item) => item.id === card.id))])
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : String(error))
+      }
+    } else if (missing.length) {
+      errors.push('Not in the committed card pool. Run the app locally with npm run dev to cache it.')
+    }
+    const stagedIds = [...localIds, ...fetchedCards.map((card) => card.id)].filter((cardId, index, values) => !existing.has(cardId) && values.indexOf(cardId) === index)
+    if (stagedIds.length) commit(tables.map((item) => item.id === id ? { ...item, staged: [...item.staged, ...stagedIds] } : item), `Added ${stagedIds.length} card${stagedIds.length === 1 ? '' : 's'} to Cards`)
+    setAdding(false)
+    const failureNames = [...notFound, ...duplicates.map((name) => `Already in table: ${name}`), ...errors]
+    if (stagedIds.length || !failureNames.length) {
+      setAddForTable(null)
+      setAddText('')
+    } else {
+      setAddResult({ notFound: failureNames.filter((item) => item.startsWith('Not in the committed') || !item.includes(': ')), errors: failureNames.filter((item) => item.includes(': ') || item.startsWith('Not in the committed')) })
+    }
+    if (failureNames.length) setMessage(`${stagedIds.length ? `Added ${stagedIds.length}. ` : ''}${failureNames.slice(0, 2).join(' · ')}`)
+    window.setTimeout(() => setMessage(''), 2600)
   }
 
   function addTable() {
     const title = window.prompt('Name this ranking table', 'My Ranking')?.trim()
     if (!title) return
-    const next: RankingTable = { id: makeId(), title, visible: true, compact: false, ranked: Array(10).fill(null), honorable: [] }
+    const next: RankingTable = { id: makeId(), title, visible: true, compact: false, ranked: Array(10).fill(null), honorable: [], staged: [] }
     commit([...tables, next], 'Added ranking table')
     setSelectedId(next.id)
   }
@@ -262,7 +348,7 @@ function App() {
   function duplicateTable(id: string) {
     const source = tables.find((table) => table.id === id)
     if (!source) return
-    const duplicate = { ...source, id: makeId(), title: `${source.title} copy`, ranked: [...source.ranked], honorable: [...source.honorable] }
+    const duplicate = { ...source, id: makeId(), title: `${source.title} copy`, ranked: [...source.ranked], honorable: [...source.honorable], staged: [...source.staged] }
     commit([...tables, duplicate], 'Duplicated ranking table')
   }
 
@@ -333,6 +419,9 @@ function App() {
                 onDuplicate={() => duplicateTable(table.id)}
                 onDelete={() => deleteTable(table.id)}
                 onReset={() => resetTable(table.id)}
+                onClearTable={() => clearTable(table.id)}
+                onAddCards={() => { setAddForTable(table.id); setAddText(''); setAddResult(null) }}
+                onClearCards={() => clearStaged(table.id)}
                 onMoveTable={moveTable}
                 onOpenCard={(card) => { setModalCard(card); setModalFace(0) }}
                 onMoveCard={moveCard}
@@ -364,13 +453,14 @@ function App() {
           </>}
         </main>
         {modalCard && <CardModal card={modalCard} faceIndex={modalFace} onFaceChange={setModalFace} onClose={() => setModalCard(null)} />}
+        {addForTable && <AddCardsModal tableTitle={tables.find((table) => table.id === addForTable)?.title || 'Ranking'} value={addText} loading={adding} result={addResult} onChange={setAddText} onClose={() => { if (!adding) { setAddForTable(null); setAddResult(null) } }} onSubmit={() => addCardsToTable(addForTable)} />}
       </div>
       <DragOverlay dropAnimation={null}>{activeCard ? <DragCard card={activeCard} overlay /> : null}</DragOverlay>
     </DndContext>
   )
 }
 
-function RankingTableView({ table, index, cards, presentation, selected, onSelect, onRename, onToggleVisibility, onToggleCompact, onDuplicate, onDelete, onReset, onMoveTable, onOpenCard, onMoveCard }: {
+function RankingTableView({ table, index, cards, presentation, selected, onSelect, onRename, onToggleVisibility, onToggleCompact, onDuplicate, onDelete, onReset, onClearTable, onAddCards, onClearCards, onMoveTable, onOpenCard, onMoveCard }: {
   table: RankingTable
   index: number
   cards: Map<string, Card>
@@ -383,6 +473,9 @@ function RankingTableView({ table, index, cards, presentation, selected, onSelec
   onDuplicate: () => void
   onDelete: () => void
   onReset: () => void
+  onClearTable: () => void
+  onAddCards: () => void
+  onClearCards: () => void
   onMoveTable: (id: string, direction: -1 | 1) => void
   onOpenCard: (card: Card) => void
   onMoveCard: (cardId: string, tableId: string, target: 'rank' | 'honorable' | 'pool', index?: number) => void
@@ -406,6 +499,8 @@ function RankingTableView({ table, index, cards, presentation, selected, onSelec
         <button className="icon-button" onClick={onReset} aria-label="Reset table">↺</button>
         <button className="icon-button danger" onClick={onDelete} aria-label="Delete table">×</button>
         <button className="compact-toggle" onClick={onToggleCompact}>{table.compact ? 'Normal' : 'Compact'}</button>
+        <button className="compact-toggle add-cards-button" onClick={onAddCards}>ADD CARDS</button>
+        <button className="compact-toggle clear-table-button" onClick={onClearTable}>Clear Table</button>
       </div>}
     </header>
     {table.visible && <div className="table-body">
@@ -420,8 +515,19 @@ function RankingTableView({ table, index, cards, presentation, selected, onSelec
         })}</div>
         {!table.honorable.length && <span className="drop-note">Drop a card here</span>}
       </DropZone>
+      {(table.staged.length > 0 || !presentation) && <StagingTray tableId={table.id} cards={cards} staged={table.staged} presentation={presentation} onOpenCard={onOpenCard} onMoveCard={onMoveCard} onClearCards={onClearCards} />}
     </div>}
   </article>
+}
+
+function StagingTray({ tableId, cards, staged, presentation, onOpenCard, onMoveCard, onClearCards }: { tableId: string; cards: Map<string, Card>; staged: string[]; presentation: boolean; onOpenCard: (card: Card) => void; onMoveCard: (cardId: string, tableId: string, target: 'rank' | 'honorable' | 'pool', index?: number) => void; onClearCards: () => void }) {
+  return <section className="staging-tray" aria-label="Cards ready to rank">
+    <div className="subheading"><span>Cards</span><span>{staged.length}</span>{!presentation && staged.length > 0 && <button className="tray-clear" onClick={onClearCards}>Clear Cards</button>}</div>
+    {staged.length ? <div className="staged-cards">{staged.map((id) => {
+      const card = cards.get(id)
+      return card ? <DraggableCard key={id} card={card} tableId={tableId} location="staged" compact={false} presentation={presentation} onOpenCard={onOpenCard} onMoveCard={onMoveCard} /> : null
+    })}</div> : <span className="drop-note">Use ADD CARDS to prepare this table.</span>}
+  </section>
 }
 
 function RankSlot({ tableId, rank, card, compact, presentation, onOpenCard, onMoveCard }: { tableId: string; rank: number; card?: Card; compact: boolean; presentation: boolean; onOpenCard: (card: Card) => void; onMoveCard: (cardId: string, tableId: string, target: 'rank' | 'honorable' | 'pool', index?: number) => void }) {
@@ -436,7 +542,7 @@ function DropZone({ id, className, children }: { id: string; className: string; 
   return <div ref={setNodeRef} className={`${className} ${isOver ? 'is-over' : ''}`}>{children}</div>
 }
 
-function DraggableCard({ card, tableId, location, index, compact, presentation, onOpenCard, onMoveCard }: { card: Card; tableId: string; location: 'rank' | 'honorable'; index?: number; compact: boolean; presentation: boolean; onOpenCard: (card: Card) => void; onMoveCard: (cardId: string, tableId: string, target: 'rank' | 'honorable' | 'pool', index?: number) => void }) {
+function DraggableCard({ card, tableId, location, index, compact, presentation, onOpenCard, onMoveCard }: { card: Card; tableId: string; location: 'rank' | 'honorable' | 'staged'; index?: number; compact: boolean; presentation: boolean; onOpenCard: (card: Card) => void; onMoveCard: (cardId: string, tableId: string, target: 'rank' | 'honorable' | 'pool', index?: number) => void }) {
   const dragId = `${tableId || 'pool'}::card::${card.id}`
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: dragId, data: { cardId: card.id, tableId, location, index } })
   const style = { transform: CSS.Translate.toString(transform) }
@@ -484,6 +590,21 @@ function CardModal({ card, faceIndex, onFaceChange, onClose }: { card: Card; fac
         <p className="modal-oracle">{face?.oracleText || card.oracleText || 'No Oracle text.'}</p>
         {card.faces && card.faces.length > 1 && <div className="face-switcher">{card.faces.map((item, index) => <button key={item.name} className={index === faceIndex ? 'is-active' : ''} onClick={() => onFaceChange(index)}>{index === 0 ? 'Front' : 'Back'}</button>)}</div>}
       </div>
+    </section>
+  </div>
+}
+
+function AddCardsModal({ tableTitle, value, loading, result, onChange, onClose, onSubmit }: { tableTitle: string; value: string; loading: boolean; result: { notFound: string[]; errors: string[] } | null; onChange: (value: string) => void; onClose: () => void; onSubmit: () => void }) {
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !loading) onClose() }}>
+    <section className="add-modal" role="dialog" aria-modal="true" aria-label="Add Cards">
+      <button className="modal-close" onClick={onClose} disabled={loading} aria-label="Close add cards">×</button>
+      <p className="modal-kicker">{tableTitle}</p>
+      <h2>Add Cards</h2>
+      <p className="add-modal-hint">Paste card names, one per line.</p>
+      <textarea autoFocus value={value} onChange={(event) => onChange(event.target.value)} placeholder={'Samut, Tyrant of Naktamun\nKarn, Argent Defender\nStingcaster Mage'} disabled={loading} />
+      {loading && <p className="add-modal-status">Finding cards and caching new artwork…</p>}
+      {result && <div className="add-modal-errors">{result.notFound.map((item) => <p key={item}>Not found: “{item}”</p>)}{result.errors.map((item) => <p key={item}>{item}</p>)}</div>}
+      <div className="add-modal-actions"><button className="button" onClick={onClose} disabled={loading}>Cancel</button><button className="button button-gold" onClick={onSubmit} disabled={loading || !value.trim()}>{loading ? 'Adding…' : 'Add Cards'}</button></div>
     </section>
   </div>
 }

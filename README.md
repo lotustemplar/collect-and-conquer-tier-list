@@ -12,6 +12,17 @@ npm run dev
 
 The sync script retrieves the `fra` Reality Fracture set and `frc` Reality Fracture Commander set from Scryfall, keeps one canonical mechanically unique printing, and caches the card images under `public/cards/reality-fracture/`. The app has no runtime dependency on Scryfall.
 
+During local development, **ADD CARDS** uses the Vite-only `/api/cards/resolve` helper. Existing cards resolve from the local JSON without another Scryfall request; missing cards are looked up responsibly, downloaded into `public/cards/reality-fracture/`, and appended to `public/data/reality-fracture.json`. GitHub Pages has no write API, so add and cache cards locally before deploying, then commit the changed data/image files:
+
+```bash
+npm run dev
+# use ADD CARDS in the local app
+git add public/cards public/data/reality-fracture.json
+git commit -m "Cache added cards"
+```
+
+The normal `npm run sync:cards` and `npm run refresh:cards` commands preserve cached non-set cards rather than deleting them.
+
 Scryfall represents double-faced cards such as `Bloodline Recollector // Ancestral Craving` and `Carnivorous Cultivator // Enroot` with their full face names; the starter rankings resolve the requested front-face names to those canonical cards. The five Reality Fracture Elder Sphinx cards (Aerid Konstrari, Denzilore Fatehold, Ingris Stingerquill, Kwia Vigorbloom, and Uldaros Theorix) are added to Friend's honorable mentions automatically.
 
 Use `npm run refresh:cards` to force-refresh the local card assets. `npm run build` creates the static `dist/` site and `npm run preview` serves the production build locally.

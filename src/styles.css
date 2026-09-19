@@ -34,9 +34,10 @@ main { max-width: 1920px; margin: 0 auto; padding: 24px clamp(20px, 4vw, 72px) 4
 .ranking-table { min-width: 0; border: 1px solid var(--color-rule); border-radius: var(--radius-md); background: rgba(17, 25, 37, .74); overflow: hidden; transition: border-color var(--dur-standard) var(--ease-standard), opacity var(--dur-standard) var(--ease-standard); }
 .ranking-table.is-selected { border-color: rgba(201, 169, 110, .48); }
 .ranking-table.is-hidden { opacity: .55; }
-.table-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 62px; padding: 12px 13px; border-bottom: 1px solid var(--color-rule); }
+.table-header { display: flex; align-items: stretch; flex-direction: column; gap: 10px; min-height: 88px; padding: 13px; border-bottom: 1px solid var(--color-rule); }
 .table-title-wrap { display: flex; align-items: baseline; min-width: 0; gap: 9px; }
-.table-title-wrap h2, .table-title-wrap input { min-width: 0; color: var(--color-paper); font-family: var(--font-display); font-size: clamp(1.05rem, 1.8vw, 1.4rem); font-weight: 400; letter-spacing: -.025em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.table-title-wrap h2, .table-title-wrap input { min-width: 0; color: var(--color-paper); font-family: var(--font-display); font-size: clamp(1.2rem, 2vw, 1.55rem); font-weight: 400; letter-spacing: -.025em; line-height: 1.05; overflow-wrap: anywhere; }
+.table-title-wrap h2 { white-space: normal; }
 .table-title-wrap input { width: 150px; padding: 3px 5px; border: 1px solid var(--color-accent); background: transparent; outline: none; }
 .rank-count { flex: none; color: var(--color-accent); font-size: .7rem; letter-spacing: .1em; }
 .table-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 3px; }

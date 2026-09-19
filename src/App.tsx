@@ -547,7 +547,7 @@ function DraggableCard({ card, tableId, location, index, compact, presentation, 
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: dragId, data: { cardId: card.id, tableId, location, index } })
   const style = { transform: CSS.Translate.toString(transform) }
   return <div ref={setNodeRef} style={style} className={`draggable-card ${isDragging ? 'is-dragging' : ''}`} {...listeners} {...attributes}>
-    <button className="card-face-button" onClick={(event) => { event.stopPropagation(); onOpenCard(card) }} onPointerDown={(event) => event.stopPropagation()}>
+    <button className="card-face-button" onClick={(event) => { event.stopPropagation(); onOpenCard(card) }}>
       <img src={cardImage(card)} alt={`${card.name} card`} draggable={false} />
       <span className="card-name">{card.name}</span>
     </button>

@@ -101,11 +101,6 @@ function removeCard(table: RankingTable, cardId: string) {
   }
 }
 
-function compactRanked(ranked: Array<string | null>, limit = 10) {
-  const filled = ranked.slice(0, limit).filter((id): id is string => Boolean(id))
-  return [...filled, ...Array.from({ length: limit - filled.length }, () => null)]
-}
-
 function placeCard(tables: RankingTable[], cardId: string, destinationId: string, target: 'rank' | 'honorable' | 'staged', index: number, sourceId?: string | null) {
   return tables.map((table) => {
     if (table.id === destinationId) {
@@ -113,7 +108,7 @@ function placeCard(tables: RankingTable[], cardId: string, destinationId: string
       const clean = removeCard(table, cardId)
       if (target === 'honorable') return { ...clean, honorable: [...clean.honorable, cardId] }
       if (target === 'staged') return { ...clean, staged: [...clean.staged, cardId] }
-      const nextRanked = [...compactRanked(clean.ranked, table.size)]
+      const nextRanked = [...clean.ranked]
       nextRanked.splice(index, 0, cardId)
       const overflow = nextRanked.splice(table.size)
       return { ...clean, ranked: [...nextRanked, ...Array.from({ length: 10 - nextRanked.length }, () => null)], honorable: [...clean.honorable, ...overflow.filter((id): id is string => Boolean(id))].filter((id, i, all) => all.indexOf(id) === i), ...(hadCard ? {} : {}) }

@@ -23,6 +23,8 @@ git commit -m "Cache added cards"
 
 The normal `npm run sync:cards` and `npm run refresh:cards` commands preserve cached non-set cards rather than deleting them.
 
+The Card Pool search also queries Scryfall locally after a short typing delay, caches new result artwork/metadata, and makes those cards available to drag into a table's Cards tray. The deployed Pages version searches the committed local pool only; cache new results locally and push them before recording with them on Pages.
+
 Scryfall represents double-faced cards such as `Bloodline Recollector // Ancestral Craving` and `Carnivorous Cultivator // Enroot` with their full face names; the starter rankings resolve the requested front-face names to those canonical cards. The five Reality Fracture Elder Sphinx cards (Aerid Konstrari, Denzilore Fatehold, Ingris Stingerquill, Kwia Vigorbloom, and Uldaros Theorix) are added to Friend's honorable mentions automatically.
 
 Use `npm run refresh:cards` to force-refresh the local card assets. `npm run build` creates the static `dist/` site and `npm run preview` serves the production build locally.

@@ -60,7 +60,7 @@ main { max-width: 1920px; margin: 0 auto; padding: 24px clamp(20px, 4vw, 72px) 4
 .rank-slot { display: grid; grid-template-columns: 29px minmax(0, 1fr); align-items: center; min-height: 78px; border: 1px solid transparent; border-radius: var(--radius-sm); transition: background var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard); }
 .rank-slot.is-filled { background: rgba(243, 239, 228, .035); }
 .rank-slot.is-empty { min-height: 47px; border-color: rgba(243, 239, 228, .07); }
-.rank-slot.is-over, .table-honorable.is-over, .pool-grid.is-over { border-color: var(--color-accent); background: rgba(201, 169, 110, .13); }
+.rank-slot.is-over, .table-honorable.is-over, .staging-tray.is-over, .pool-grid.is-over { border-color: var(--color-accent); background: rgba(201, 169, 110, .13); }
 .rank-number { align-self: stretch; display: grid; place-items: center; color: var(--color-accent); font-size: .72rem; font-weight: 800; letter-spacing: .08em; }
 .slot-placeholder { padding: 0 10px; color: rgba(185, 183, 176, .45); font-size: .73rem; text-transform: uppercase; letter-spacing: .08em; }
 .draggable-card { position: relative; display: block; min-width: 0; touch-action: none; cursor: grab; }
@@ -104,8 +104,10 @@ main { max-width: 1920px; margin: 0 auto; padding: 24px clamp(20px, 4vw, 72px) 4
 .section-kicker { font-size: .78rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
 .pool-count { color: var(--color-paper-muted); font-size: .75rem; }
 .chevron { color: var(--color-accent); font-size: 1.15rem; line-height: 1; }
+.search-area { display: flex; align-items: center; gap: 12px; }
 .search-box { display: flex; align-items: center; gap: 8px; color: var(--color-paper-muted); font-size: .75rem; }
 .search-box input { width: min(300px, 42vw); padding: 8px 10px; border: 1px solid var(--color-rule-strong); border-radius: var(--radius-sm); background: var(--color-ink-raised); color: var(--color-paper); }
+.search-status { color: var(--color-accent); font-size: .7rem; }
 .pool-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 10px; min-height: 120px; padding-top: 15px; border: 1px solid transparent; transition: border-color var(--dur-fast) var(--ease-standard); }
 .pool-card { min-width: 0; }
 .pool-card .draggable-card { display: block; }
@@ -185,6 +187,7 @@ main { max-width: 1920px; margin: 0 auto; padding: 24px clamp(20px, 4vw, 72px) 4
   .table-header { align-items: flex-start; flex-direction: column; }
   .table-actions { align-self: stretch; justify-content: flex-start; }
   .pool-heading { align-items: flex-start; flex-direction: column; }
+  .search-area { width: 100%; align-items: flex-start; flex-direction: column; gap: 6px; }
   .search-box { width: 100%; justify-content: space-between; }
   .search-box input { width: 60%; }
   .pool-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }

@@ -106,12 +106,13 @@ function compactRanked(ranked: Array<string | null>, limit = 10) {
   return [...filled, ...Array.from({ length: limit - filled.length }, () => null)]
 }
 
-function placeCard(tables: RankingTable[], cardId: string, destinationId: string, target: 'rank' | 'honorable', index: number, sourceId?: string | null) {
+function placeCard(tables: RankingTable[], cardId: string, destinationId: string, target: 'rank' | 'honorable' | 'staged', index: number, sourceId?: string | null) {
   return tables.map((table) => {
     if (table.id === destinationId) {
       const hadCard = uniqueInTable(table).has(cardId)
       const clean = removeCard(table, cardId)
       if (target === 'honorable') return { ...clean, honorable: [...clean.honorable, cardId] }
+      if (target === 'staged') return { ...clean, staged: [...clean.staged, cardId] }
       const nextRanked = [...compactRanked(clean.ranked, table.size)]
       nextRanked.splice(index, 0, cardId)
       const overflow = nextRanked.splice(table.size)
@@ -151,6 +152,9 @@ function App() {
   const [future, setFuture] = useState<Snapshot[]>([])
   const [selectedId, setSelectedId] = useState('friends-ranking')
   const [search, setSearch] = useState('')
+  const [searchResults, setSearchResults] = useState<Card[] | null>(null)
+  const [searchingScryfall, setSearchingScryfall] = useState(false)
+  const [searchNotice, setSearchNotice] = useState('')
   const [poolCollapsed, setPoolCollapsed] = useState(false)
   const [presentation, setPresentation] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -186,6 +190,46 @@ function App() {
   }, [])
 
   useEffect(() => {
+    const query = search.trim()
+    if (query.length < 2) {
+      setSearchResults(null)
+      setSearchingScryfall(false)
+      setSearchNotice('')
+      return
+    }
+    if (!import.meta.env.DEV) {
+      setSearchResults(null)
+      setSearchNotice('Showing committed cards')
+      return
+    }
+    const controller = new AbortController()
+    const timer = window.setTimeout(async () => {
+      setSearchingScryfall(true)
+      setSearchNotice('')
+      try {
+        const response = await fetch(`/api/cards/search?q=${encodeURIComponent(query)}`, { signal: controller.signal })
+        const result = await response.json() as { cards?: Card[]; total?: number; error?: string }
+        if (!response.ok) throw new Error(result.error || 'Scryfall search failed')
+        const results = result.cards || []
+        setCards((current) => [...current, ...results.filter((card) => !current.some((item) => item.id === card.id))])
+        setSearchResults(results)
+        setSearchNotice(`${result.total || results.length} Scryfall results`)
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          setSearchResults(null)
+          setSearchNotice('Scryfall search unavailable')
+        }
+      } finally {
+        setSearchingScryfall(false)
+      }
+    }, 450)
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [search])
+
+  useEffect(() => {
     if (tables.length) localStorage.setItem(STORAGE_KEY, JSON.stringify(tables))
     localStorage.setItem(SELECTED_KEY, selectedId)
     localStorage.setItem(UI_KEY, JSON.stringify({ poolCollapsed, presentation }))
@@ -203,7 +247,7 @@ function App() {
   }, [modalCard, presentation])
 
   const cardById = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards])
-  const filteredCards = useMemo(() => cards.filter((card) => card.name.toLowerCase().includes(search.toLowerCase())), [cards, search])
+  const filteredCards = useMemo(() => searchResults || cards.filter((card) => card.name.toLowerCase().includes(search.toLowerCase())), [cards, search, searchResults])
   const activeCard = activeId ? cardById.get(activeId) || null : null
   const visibleTables = tables.filter((table) => table.visible)
 
@@ -236,19 +280,19 @@ function App() {
       return
     }
     const [tableId, target, rawIndex] = overId.split('::')
-    if (!tableId || !['rank', 'honorable'].includes(target)) return
+    if (!tableId || !['rank', 'honorable', 'staged'].includes(target)) return
     const sourceTable = dragData?.tableId ? tables.find((table) => table.id === dragData.tableId) : undefined
     const destination = tables.find((table) => table.id === tableId)
     if (!destination) return
     const targetIndex = target === 'rank' ? Number(rawIndex) : 0
     const movingAcrossTables = sourceTable && sourceTable.id !== destination.id
-    const next = placeCard(tables, cardId, tableId, target as 'rank' | 'honorable', targetIndex, movingAcrossTables ? null : sourceTable?.id)
+    const next = placeCard(tables, cardId, tableId, target as 'rank' | 'honorable' | 'staged', targetIndex, movingAcrossTables ? null : sourceTable?.id)
     if (!movingAcrossTables && sourceTable && sourceTable.id === destination.id) {
       commit(next, 'Reordered ranking')
     } else if (movingAcrossTables) {
       commit(next, 'Copied card to another table')
     } else {
-      commit(next, target === 'honorable' ? 'Added to honorable mentions' : 'Added to ranking')
+      commit(next, target === 'honorable' ? 'Added to honorable mentions' : target === 'staged' ? 'Added to Cards' : 'Added to ranking')
     }
   }
 
@@ -383,7 +427,7 @@ function App() {
     commit(next, 'Reordered tables')
   }
 
-  function moveCard(cardId: string, destinationId: string, target: 'rank' | 'honorable' | 'pool', index = 0) {
+  function moveCard(cardId: string, destinationId: string, target: 'rank' | 'honorable' | 'staged' | 'pool', index = 0) {
     const source = tables.find((table) => table.id === destinationId && uniqueInTable(table).has(cardId)) || tables.find((table) => uniqueInTable(table).has(cardId))
     if (target === 'pool') {
       if (source) updateTable(source.id, (table) => removeCard(table, cardId), 'Returned to card pool')
@@ -460,7 +504,7 @@ function App() {
             {!presentation && <section className={`pool-section ${poolCollapsed ? 'is-collapsed' : ''}`}>
               <div className="pool-heading">
                 <button className="pool-toggle" onClick={() => setPoolCollapsed((value) => !value)} aria-expanded={!poolCollapsed}><span className="section-kicker">Card Pool</span><span className="pool-count">{cards.length} cards</span><span className="chevron">{poolCollapsed ? '＋' : '−'}</span></button>
-                {!poolCollapsed && <label className="search-box"><span>Search cards</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search card names" /></label>}
+                {!poolCollapsed && <div className="search-area"><label className="search-box"><span>Search cards</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search Scryfall card names" /></label>{(searchingScryfall || searchNotice) && <span className="search-status">{searchingScryfall ? 'Searching Scryfall…' : searchNotice}</span>}</div>}
               </div>
               {!poolCollapsed && <DroppablePool cards={filteredCards} onOpenCard={(card) => { setModalCard(card); setModalFace(0) }} />}
             </section>}
@@ -493,7 +537,7 @@ function RankingTableView({ table, index, cards, presentation, selected, onSelec
   onClearCards: () => void
   onMoveTable: (id: string, direction: -1 | 1) => void
   onOpenCard: (card: Card) => void
-  onMoveCard: (cardId: string, tableId: string, target: 'rank' | 'honorable' | 'pool', index?: number) => void
+  onMoveCard: (cardId: string, tableId: string, target: 'rank' | 'honorable' | 'staged' | 'pool', index?: number) => void
 }) {
   const [renaming, setRenaming] = useState(false)
   const [title, setTitle] = useState(table.title)
@@ -540,17 +584,17 @@ function RankingTableView({ table, index, cards, presentation, selected, onSelec
   </article>
 }
 
-function StagingTray({ tableId, cards, staged, presentation, onOpenCard, onMoveCard, onClearCards }: { tableId: string; cards: Map<string, Card>; staged: string[]; presentation: boolean; onOpenCard: (card: Card) => void; onMoveCard: (cardId: string, tableId: string, target: 'rank' | 'honorable' | 'pool', index?: number) => void; onClearCards: () => void }) {
-  return <section className="staging-tray" aria-label="Cards ready to rank">
+function StagingTray({ tableId, cards, staged, presentation, onOpenCard, onMoveCard, onClearCards }: { tableId: string; cards: Map<string, Card>; staged: string[]; presentation: boolean; onOpenCard: (card: Card) => void; onMoveCard: (cardId: string, tableId: string, target: 'rank' | 'honorable' | 'staged' | 'pool', index?: number) => void; onClearCards: () => void }) {
+  return <DropZone id={`${tableId}::staged`} className="staging-tray">
     <div className="subheading"><span>Cards</span><span>{staged.length}</span>{!presentation && staged.length > 0 && <button className="tray-clear" onClick={onClearCards}>Clear Cards</button>}</div>
     {staged.length ? <div className="staged-cards">{staged.map((id) => {
       const card = cards.get(id)
       return card ? <DraggableCard key={id} card={card} tableId={tableId} location="staged" compact={false} presentation={presentation} onOpenCard={onOpenCard} onMoveCard={onMoveCard} /> : null
     })}</div> : <span className="drop-note">Use ADD CARDS to prepare this table.</span>}
-  </section>
+  </DropZone>
 }
 
-function RankSlot({ tableId, rank, card, compact, presentation, onOpenCard, onMoveCard }: { tableId: string; rank: number; card?: Card; compact: boolean; presentation: boolean; onOpenCard: (card: Card) => void; onMoveCard: (cardId: string, tableId: string, target: 'rank' | 'honorable' | 'pool', index?: number) => void }) {
+function RankSlot({ tableId, rank, card, compact, presentation, onOpenCard, onMoveCard }: { tableId: string; rank: number; card?: Card; compact: boolean; presentation: boolean; onOpenCard: (card: Card) => void; onMoveCard: (cardId: string, tableId: string, target: 'rank' | 'honorable' | 'staged' | 'pool', index?: number) => void }) {
   return <DropZone id={`${tableId}::rank::${rank}`} className={`rank-slot ${card ? 'is-filled' : 'is-empty'}`}>
     <div className="rank-number">{String(rank + 1).padStart(2, '0')}</div>
     {card ? <DraggableCard card={card} tableId={tableId} location="rank" index={rank} compact={compact} presentation={presentation} onOpenCard={onOpenCard} onMoveCard={onMoveCard} /> : <span className="slot-placeholder">Drop card</span>}
@@ -562,7 +606,7 @@ function DropZone({ id, className, children }: { id: string; className: string; 
   return <div ref={setNodeRef} className={`${className} ${isOver ? 'is-over' : ''}`}>{children}</div>
 }
 
-function DraggableCard({ card, tableId, location, index, compact, presentation, onOpenCard, onMoveCard }: { card: Card; tableId: string; location: 'rank' | 'honorable' | 'staged'; index?: number; compact: boolean; presentation: boolean; onOpenCard: (card: Card) => void; onMoveCard: (cardId: string, tableId: string, target: 'rank' | 'honorable' | 'pool', index?: number) => void }) {
+function DraggableCard({ card, tableId, location, index, compact, presentation, onOpenCard, onMoveCard }: { card: Card; tableId: string; location: 'rank' | 'honorable' | 'staged'; index?: number; compact: boolean; presentation: boolean; onOpenCard: (card: Card) => void; onMoveCard: (cardId: string, tableId: string, target: 'rank' | 'honorable' | 'staged' | 'pool', index?: number) => void }) {
   const dragId = `${tableId || 'pool'}::card::${card.id}`
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: dragId, data: { cardId: card.id, tableId, location, index } })
   const style = { transform: CSS.Translate.toString(transform) }
@@ -572,10 +616,11 @@ function DraggableCard({ card, tableId, location, index, compact, presentation, 
       <span className="card-name">{card.name}</span>
     </button>
     {!presentation && <div className="card-move-controls" onPointerDown={(event) => event.stopPropagation()}>
-      <select value="" onChange={(event) => { const value = event.target.value; if (value === 'hm') onMoveCard(card.id, tableId, 'honorable'); else if (value === 'pool') onMoveCard(card.id, tableId, 'pool'); else if (value) onMoveCard(card.id, tableId, 'rank', Number(value)); event.currentTarget.value = '' }} aria-label={`Move ${card.name}`}>
+      <select value="" onChange={(event) => { const value = event.target.value; if (value === 'hm') onMoveCard(card.id, tableId, 'honorable'); else if (value === 'staged') onMoveCard(card.id, tableId, 'staged'); else if (value === 'pool') onMoveCard(card.id, tableId, 'pool'); else if (value) onMoveCard(card.id, tableId, 'rank', Number(value)); event.currentTarget.value = '' }} aria-label={`Move ${card.name}`}>
         <option value="">Move</option>
         {Array.from({ length: 10 }, (_, rank) => <option key={rank} value={rank}>#{rank + 1}</option>)}
         <option value="hm">Honorable</option>
+        <option value="staged">Cards</option>
         <option value="pool">Pool</option>
       </select>
     </div>}

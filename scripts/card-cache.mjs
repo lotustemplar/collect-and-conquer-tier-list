@@ -160,3 +160,48 @@ export async function resolveAndCache(names) {
   }
   return { cards: resolved, alreadyPresent, fetched, notFound, errors }
 }
+
+export async function searchAndCache(query, limit = 40) {
+  const database = await readDatabase()
+  const cards = [...database.cards]
+  const localMatches = cards.filter((card) => looseName(card.name).includes(looseName(query)))
+  const page = await fetchJson(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}`)
+  const candidates = (page.data || []).sort((a, b) => canonicalScore(a) - canonicalScore(b))
+  const seen = new Set()
+  const results = []
+  let changed = false
+
+  for (const remote of candidates.slice(0, limit)) {
+    const existing = cards.find((card) => card.id === remote.id || (remote.oracle_id && card.oracleId === remote.oracle_id))
+    if (existing) {
+      if (!seen.has(existing.id)) {
+        seen.add(existing.id)
+        results.push(existing)
+      }
+      continue
+    }
+    const normalized = normalizeRemoteCard(remote)
+    const targets = normalized.faces?.length ? normalized.faces.map((face) => ({ uri: face.sourceImageUri, filename: path.basename(face.localImage) })) : [{ uri: normalized.sourceImageUri, filename: path.basename(normalized.localImage) }]
+    for (const target of [...new Map(targets.map((item) => [item.filename, item])).values()]) await cacheImage(target.uri, target.filename)
+    cards.push(normalized)
+    changed = true
+    if (!seen.has(normalized.id)) {
+      seen.add(normalized.id)
+      results.push(normalized)
+    }
+    await sleep(REQUEST_DELAY_MS)
+  }
+
+  for (const local of localMatches) {
+    if (!seen.has(local.id)) {
+      seen.add(local.id)
+      results.push(local)
+    }
+  }
+
+  if (changed) {
+    await fs.mkdir(path.dirname(DATA_FILE), { recursive: true })
+    await fs.writeFile(DATA_FILE, `${JSON.stringify({ ...database, generatedAt: new Date().toISOString(), cards }, null, 2)}\n`)
+  }
+  return { cards: results, total: page.total_cards || results.length, fetched: changed }
+}

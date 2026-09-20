@@ -111,7 +111,10 @@ function placeCard(tables: RankingTable[], cardId: string, destinationId: string
       const nextRanked = [...clean.ranked]
       nextRanked.splice(index, 0, cardId)
       const overflow = nextRanked.splice(table.size)
-      return { ...clean, ranked: [...nextRanked, ...Array.from({ length: 10 - nextRanked.length }, () => null)], honorable: [...clean.honorable, ...overflow.filter((id): id is string => Boolean(id))].filter((id, i, all) => all.indexOf(id) === i), ...(hadCard ? {} : {}) }
+      const overflowCards = overflow.filter((id): id is string => Boolean(id))
+      const overflowToHonorable = table.size === 10 ? overflowCards : []
+      const overflowToStaged = table.size === 5 ? overflowCards : []
+      return { ...clean, ranked: [...nextRanked, ...Array.from({ length: 10 - nextRanked.length }, () => null)], honorable: [...clean.honorable, ...overflowToHonorable].filter((id, i, all) => all.indexOf(id) === i), staged: [...clean.staged, ...overflowToStaged].filter((id, i, all) => all.indexOf(id) === i), ...(hadCard ? {} : {}) }
     }
     if (sourceId && table.id === sourceId && sourceId !== destinationId) return table
     return table

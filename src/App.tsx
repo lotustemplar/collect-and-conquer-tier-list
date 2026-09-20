@@ -123,8 +123,39 @@ function placeCard(tables: RankingTable[], cardId: string, destinationId: string
   })
 }
 
+function remoteCardToAppCard(card: { id: string; oracle_id?: string; name: string; mana_cost?: string; type_line?: string; oracle_text?: string; set: string; collector_number: string; layout: string; image_uris?: { normal?: string; large?: string }; card_faces?: Array<{ name: string; mana_cost?: string; type_line?: string; oracle_text?: string; image_uris?: { normal?: string; large?: string } }> }): Card {
+  const mainImage = card.image_uris?.normal || card.image_uris?.large || card.card_faces?.[0]?.image_uris?.normal || card.card_faces?.[0]?.image_uris?.large || ''
+  const faces = card.card_faces?.map((face) => ({
+    name: face.name,
+    manaCost: face.mana_cost || '',
+    typeLine: face.type_line || '',
+    oracleText: face.oracle_text || '',
+    localImage: '',
+    imageUrl: face.image_uris?.normal || face.image_uris?.large || mainImage,
+    sourceImageUri: face.image_uris?.normal || face.image_uris?.large || mainImage,
+  }))
+  return {
+    id: card.id,
+    oracleId: card.oracle_id || null,
+    name: card.name,
+    manaCost: card.mana_cost || card.card_faces?.[0]?.mana_cost || '',
+    typeLine: card.type_line || card.card_faces?.[0]?.type_line || '',
+    oracleText: card.oracle_text || card.card_faces?.[0]?.oracle_text || '',
+    set: card.set,
+    collectorNumber: card.collector_number,
+    layout: card.layout,
+    localImage: '',
+    imageUrl: mainImage,
+    sourceImageUri: mainImage,
+    faces: faces?.length ? faces : undefined,
+  }
+}
+
 function cardImage(card: Card, faceIndex = 0) {
-  return `${BASE.replace(/\/$/, '')}${(card.faces?.[faceIndex]?.localImage || card.localImage).replace(/^\//, '/')}`
+  const face = card.faces?.[faceIndex]
+  const local = face?.localImage || card.localImage
+  if (local) return `${BASE.replace(/\/$/, '')}${local.replace(/^\//, '/')}`
+  return face?.imageUrl || card.imageUrl || face?.sourceImageUri || card.sourceImageUri || ''
 }
 
 function parseCardNames(input: string, cards: Card[]) {
@@ -197,23 +228,19 @@ function App() {
       setSearchNotice('')
       return
     }
-    if (!import.meta.env.DEV) {
-      setSearchResults(null)
-      setSearchNotice('Showing committed cards')
-      return
-    }
     const controller = new AbortController()
     const timer = window.setTimeout(async () => {
       setSearchingScryfall(true)
       setSearchNotice('')
       try {
-        const response = await fetch(`/api/cards/search?q=${encodeURIComponent(query)}`, { signal: controller.signal })
-        const result = await response.json() as { cards?: Card[]; total?: number; error?: string }
+        const endpoint = import.meta.env.DEV ? `/api/cards/search?q=${encodeURIComponent(query)}` : `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}`
+        const response = await fetch(endpoint, { signal: controller.signal, headers: { Accept: 'application/json;q=0.9,*/*;q=0.8' } })
+        const result = await response.json() as { cards?: Card[]; data?: Array<Parameters<typeof remoteCardToAppCard>[0]>; total?: number; total_cards?: number; error?: string }
         if (!response.ok) throw new Error(result.error || 'Scryfall search failed')
-        const results = result.cards || []
+        const results = import.meta.env.DEV ? (result.cards || []) : (result.data || []).map(remoteCardToAppCard)
         setCards((current) => [...current, ...results.filter((card) => !current.some((item) => item.id === card.id))])
         setSearchResults(results)
-        setSearchNotice(`${result.total || results.length} Scryfall results`)
+        setSearchNotice(`${result.total || result.total_cards || results.length} Scryfall results${import.meta.env.DEV ? '' : ' · browser-only until cached locally'}`)
       } catch (error) {
         if ((error as Error).name !== 'AbortError') {
           setSearchResults(null)

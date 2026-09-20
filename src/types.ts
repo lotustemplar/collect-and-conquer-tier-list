@@ -4,6 +4,7 @@ export type CardFace = {
   typeLine: string
   oracleText: string
   localImage: string
+  imageUrl?: string
   sourceImageUri?: string
 }
 
@@ -18,6 +19,7 @@ export type Card = {
   collectorNumber: string
   layout: string
   localImage: string
+  imageUrl?: string
   sourceImageUri?: string
   faces?: CardFace[]
 }

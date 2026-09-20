@@ -101,20 +101,19 @@ function removeCard(table: RankingTable, cardId: string) {
   }
 }
 
-function placeCard(tables: RankingTable[], cardId: string, destinationId: string, target: 'rank' | 'honorable' | 'staged', index: number, sourceId?: string | null) {
+function placeCard(tables: RankingTable[], cardId: string, destinationId: string, target: 'rank' | 'honorable' | 'staged', index: number, sourceId?: string | null, sourceLocation?: string, sourceIndex?: number) {
   return tables.map((table) => {
     if (table.id === destinationId) {
-      const hadCard = uniqueInTable(table).has(cardId)
+      const destinationCard = target === 'rank' ? table.ranked[index] : null
       const clean = removeCard(table, cardId)
       if (target === 'honorable') return { ...clean, honorable: [...clean.honorable, cardId] }
       if (target === 'staged') return { ...clean, staged: [...clean.staged, cardId] }
       const nextRanked = [...clean.ranked]
-      nextRanked.splice(index, 0, cardId)
-      const overflow = nextRanked.splice(table.size)
-      const overflowCards = overflow.filter((id): id is string => Boolean(id))
-      const overflowToHonorable = table.size === 10 ? overflowCards : []
-      const overflowToStaged = table.size === 5 ? overflowCards : []
-      return { ...clean, ranked: [...nextRanked, ...Array.from({ length: 10 - nextRanked.length }, () => null)], honorable: [...clean.honorable, ...overflowToHonorable].filter((id, i, all) => all.indexOf(id) === i), staged: [...clean.staged, ...overflowToStaged].filter((id, i, all) => all.indexOf(id) === i), ...(hadCard ? {} : {}) }
+      const isSameTableRankMove = sourceId === destinationId && sourceLocation === 'rank' && sourceIndex !== undefined && sourceIndex !== index
+      if (isSameTableRankMove && destinationCard) nextRanked[sourceIndex] = destinationCard
+      nextRanked[index] = cardId
+      const displacedToCards = destinationCard && !isSameTableRankMove && destinationCard !== cardId ? [destinationCard] : []
+      return { ...clean, ranked: nextRanked, staged: [...clean.staged, ...displacedToCards].filter((id, i, all) => all.indexOf(id) === i) }
     }
     if (sourceId && table.id === sourceId && sourceId !== destinationId) return table
     return table
@@ -295,7 +294,7 @@ function App() {
 
   function handleDragEnd(event: DragEndEvent) {
     setActiveId(null)
-    const dragData = event.active.data.current as { cardId?: string; tableId?: string } | undefined
+    const dragData = event.active.data.current as { cardId?: string; tableId?: string; location?: string; index?: number } | undefined
     const cardId = dragData?.cardId || String(event.active.id).split('::').pop() || ''
     const overId = event.over?.id ? String(event.over.id) : null
     if (!overId) return
@@ -311,7 +310,7 @@ function App() {
     if (!destination) return
     const targetIndex = target === 'rank' ? Number(rawIndex) : 0
     const movingAcrossTables = sourceTable && sourceTable.id !== destination.id
-    const next = placeCard(tables, cardId, tableId, target as 'rank' | 'honorable' | 'staged', targetIndex, movingAcrossTables ? null : sourceTable?.id)
+    const next = placeCard(tables, cardId, tableId, target as 'rank' | 'honorable' | 'staged', targetIndex, movingAcrossTables ? null : sourceTable?.id, dragData?.location, dragData?.index)
     if (!movingAcrossTables && sourceTable && sourceTable.id === destination.id) {
       commit(next, 'Reordered ranking')
     } else if (movingAcrossTables) {
@@ -460,7 +459,8 @@ function App() {
     }
     const destination = tables.find((table) => table.id === destinationId)
     if (!destination) return
-    const next = placeCard(tables, cardId, destinationId, target, index, source?.id)
+    const sourceRank = source ? source.ranked.indexOf(cardId) : -1
+    const next = placeCard(tables, cardId, destinationId, target, index, source?.id, sourceRank >= 0 ? 'rank' : undefined, sourceRank >= 0 ? sourceRank : undefined)
     commit(next, 'Moved card')
   }
 

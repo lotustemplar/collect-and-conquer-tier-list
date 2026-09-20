@@ -101,22 +101,33 @@ function removeCard(table: RankingTable, cardId: string) {
   }
 }
 
+type DropTarget = {
+  tableId: string
+  target: 'rank' | 'honorable' | 'staged'
+  index: number
+}
+
 function placeCard(tables: RankingTable[], cardId: string, destinationId: string, target: 'rank' | 'honorable' | 'staged', index: number, sourceId?: string | null, sourceLocation?: string, sourceIndex?: number) {
-  return tables.map((table) => {
-    if (table.id === destinationId) {
-      const destinationCard = target === 'rank' ? table.ranked[index] : null
-      const clean = removeCard(table, cardId)
-      if (target === 'honorable') return { ...clean, honorable: [...clean.honorable, cardId] }
-      if (target === 'staged') return { ...clean, staged: [...clean.staged, cardId] }
-      const nextRanked = [...clean.ranked]
-      const isSameTableRankMove = sourceId === destinationId && sourceLocation === 'rank' && sourceIndex !== undefined && sourceIndex !== index
-      if (isSameTableRankMove && destinationCard) nextRanked[sourceIndex] = destinationCard
-      nextRanked[index] = cardId
-      const displacedToCards = destinationCard && !isSameTableRankMove && destinationCard !== cardId ? [destinationCard] : []
-      return { ...clean, ranked: nextRanked, staged: [...clean.staged, ...displacedToCards].filter((id, i, all) => all.indexOf(id) === i) }
-    }
-    if (sourceId && table.id === sourceId && sourceId !== destinationId) return table
-    return table
+  if (sourceId === destinationId && sourceLocation === 'rank' && sourceIndex === index && target === 'rank') return tables
+
+  const cleanedTables = sourceId && sourceId !== destinationId
+    ? tables
+    : tables.map((table) => table.id === (sourceId || destinationId) ? removeCard(table, cardId) : table)
+
+  return cleanedTables.map((table) => {
+    if (table.id !== destinationId) return table
+    if (target === 'honorable') return { ...table, honorable: [...table.honorable, cardId] }
+    if (target === 'staged') return { ...table, staged: [...table.staged, cardId] }
+
+    // A rank drop always writes only to the selected slot. It never inserts,
+    // shifts, swaps, or compacts any other rank.
+    const displaced = table.ranked[index]
+    const ranked = [...table.ranked]
+    ranked[index] = cardId
+    const staged = displaced && displaced !== cardId && !table.staged.includes(displaced)
+      ? [...table.staged, displaced]
+      : table.staged
+    return { ...table, ranked, staged }
   })
 }
 
@@ -303,12 +314,15 @@ function App() {
       if (sourceTable) updateTable(sourceTable.id, (table) => removeCard(table, cardId), 'Returned to card pool')
       return
     }
-    const [tableId, target, rawIndex] = overId.split('::')
+    const overData = event.over?.data.current as DropTarget | undefined
+    const [parsedTableId, parsedTarget, rawIndex] = overId.split('::')
+    const tableId = overData?.tableId || parsedTableId
+    const target = overData?.target || parsedTarget
     if (!tableId || !['rank', 'honorable', 'staged'].includes(target)) return
     const sourceTable = dragData?.tableId ? tables.find((table) => table.id === dragData.tableId) : undefined
     const destination = tables.find((table) => table.id === tableId)
     if (!destination) return
-    const targetIndex = target === 'rank' ? Number(rawIndex) : 0
+    const targetIndex = target === 'rank' ? (overData?.index ?? Number(rawIndex)) : 0
     const movingAcrossTables = sourceTable && sourceTable.id !== destination.id
     const next = placeCard(tables, cardId, tableId, target as 'rank' | 'honorable' | 'staged', targetIndex, movingAcrossTables ? null : sourceTable?.id, dragData?.location, dragData?.index)
     if (!movingAcrossTables && sourceTable && sourceTable.id === destination.id) {
@@ -596,7 +610,7 @@ function RankingTableView({ table, index, cards, presentation, selected, onSelec
       <div className="ranking-slots">
         {table.ranked.slice(0, table.size).map((id, rank) => <RankSlot key={`${table.id}-${rank}`} tableId={table.id} rank={rank} card={id ? cards.get(id) : undefined} compact={table.compact} presentation={presentation} onOpenCard={onOpenCard} onMoveCard={onMoveCard} />)}
       </div>
-      <DropZone id={`${table.id}::honorable`} className="table-honorable">
+      <DropZone id={`${table.id}::honorable`} data={{ tableId: table.id, target: 'honorable', index: 0 }} className="table-honorable">
         <div className="subheading"><span>Honorable Mentions</span><span>{table.honorable.length}</span></div>
         <div className="honorable-cards">{table.honorable.map((id) => {
           const card = cards.get(id)
@@ -610,7 +624,7 @@ function RankingTableView({ table, index, cards, presentation, selected, onSelec
 }
 
 function StagingTray({ tableId, cards, staged, presentation, onOpenCard, onMoveCard, onClearCards }: { tableId: string; cards: Map<string, Card>; staged: string[]; presentation: boolean; onOpenCard: (card: Card) => void; onMoveCard: (cardId: string, tableId: string, target: 'rank' | 'honorable' | 'staged' | 'pool', index?: number) => void; onClearCards: () => void }) {
-  return <DropZone id={`${tableId}::staged`} className="staging-tray">
+  return <DropZone id={`${tableId}::staged`} data={{ tableId, target: 'staged', index: 0 }} className="staging-tray">
     <div className="subheading"><span>Cards</span><span>{staged.length}</span>{!presentation && staged.length > 0 && <button className="tray-clear" onClick={onClearCards}>Clear Cards</button>}</div>
     {staged.length ? <div className="staged-cards">{staged.map((id) => {
       const card = cards.get(id)
@@ -620,14 +634,14 @@ function StagingTray({ tableId, cards, staged, presentation, onOpenCard, onMoveC
 }
 
 function RankSlot({ tableId, rank, card, compact, presentation, onOpenCard, onMoveCard }: { tableId: string; rank: number; card?: Card; compact: boolean; presentation: boolean; onOpenCard: (card: Card) => void; onMoveCard: (cardId: string, tableId: string, target: 'rank' | 'honorable' | 'staged' | 'pool', index?: number) => void }) {
-  return <DropZone id={`${tableId}::rank::${rank}`} className={`rank-slot ${card ? 'is-filled' : 'is-empty'}`}>
+  return <DropZone id={`${tableId}::rank::${rank}`} data={{ tableId, target: 'rank', index: rank }} className={`rank-slot ${card ? 'is-filled' : 'is-empty'}`}>
     <div className="rank-number">{String(rank + 1).padStart(2, '0')}</div>
     {card ? <DraggableCard card={card} tableId={tableId} location="rank" index={rank} compact={compact} presentation={presentation} onOpenCard={onOpenCard} onMoveCard={onMoveCard} /> : <span className="slot-placeholder">Drop card</span>}
   </DropZone>
 }
 
-function DropZone({ id, className, children }: { id: string; className: string; children: React.ReactNode }) {
-  const { isOver, setNodeRef } = useDroppable({ id })
+function DropZone({ id, data, className, children }: { id: string; data?: DropTarget; className: string; children: React.ReactNode }) {
+  const { isOver, setNodeRef } = useDroppable({ id, data })
   return <div ref={setNodeRef} className={`${className} ${isOver ? 'is-over' : ''}`}>{children}</div>
 }
 

@@ -62,6 +62,7 @@ function buildInitialTables(cards: Card[]): RankingTable[] {
     title: preset.title,
     visible: true,
     compact: false,
+    size: 10,
     ranked: Array.from({ length: 10 }, (_, index) => resolveName(preset.ranked[index] || '', cards)),
     honorable: [...preset.honorable.map((name) => resolveName(name, cards)), ...(preset.id === 'friends-ranking' ? cards.filter((card) => card.typeLine.includes('Elder Sphinx')).map((card) => card.id) : [])]
       .filter((id): id is string => Boolean(id))
@@ -78,6 +79,7 @@ function normalizeTables(value: unknown, cards: Card[]): RankingTable[] | null {
     title: typeof table.title === 'string' && table.title.trim() ? table.title : 'Ranking',
     visible: table.visible !== false,
     compact: table.compact === true,
+    size: (table.size === 5 ? 5 : 10) as 5 | 10,
     ranked: Array.from({ length: 10 }, (_, index) => valid.has(table.ranked?.[index] || '') ? table.ranked[index] : null),
     honorable: Array.isArray(table.honorable) ? table.honorable.filter((id): id is string => valid.has(id)) : [],
     staged: Array.isArray(table.staged) ? table.staged.filter((id): id is string => valid.has(id)) : [],
@@ -99,9 +101,9 @@ function removeCard(table: RankingTable, cardId: string) {
   }
 }
 
-function compactRanked(ranked: Array<string | null>) {
-  const filled = ranked.filter((id): id is string => Boolean(id))
-  return [...filled, ...Array.from({ length: 10 - filled.length }, () => null)]
+function compactRanked(ranked: Array<string | null>, limit = 10) {
+  const filled = ranked.slice(0, limit).filter((id): id is string => Boolean(id))
+  return [...filled, ...Array.from({ length: limit - filled.length }, () => null)]
 }
 
 function placeCard(tables: RankingTable[], cardId: string, destinationId: string, target: 'rank' | 'honorable', index: number, sourceId?: string | null) {
@@ -110,9 +112,9 @@ function placeCard(tables: RankingTable[], cardId: string, destinationId: string
       const hadCard = uniqueInTable(table).has(cardId)
       const clean = removeCard(table, cardId)
       if (target === 'honorable') return { ...clean, honorable: [...clean.honorable, cardId] }
-      const nextRanked = [...compactRanked(clean.ranked)]
+      const nextRanked = [...compactRanked(clean.ranked, table.size)]
       nextRanked.splice(index, 0, cardId)
-      const overflow = nextRanked.splice(10)
+      const overflow = nextRanked.splice(table.size)
       return { ...clean, ranked: [...nextRanked, ...Array.from({ length: 10 - nextRanked.length }, () => null)], honorable: [...clean.honorable, ...overflow.filter((id): id is string => Boolean(id))].filter((id, i, all) => all.indexOf(id) === i), ...(hadCard ? {} : {}) }
     }
     if (sourceId && table.id === sourceId && sourceId !== destinationId) return table
@@ -272,7 +274,7 @@ function App() {
     const preset = PRESETS.find((item) => item.id === id)
     const table = tables.find((item) => item.id === id)
     if (!preset || !table || !window.confirm(`Reset ${table.title}?`)) return
-    const restored: RankingTable = { ...table, ranked: Array.from({ length: 10 }, (_, index) => resolveName(preset.ranked[index] || '', cards)), honorable: [...preset.honorable.map((name) => resolveName(name, cards)), ...(preset.id === 'friends-ranking' ? cards.filter((card) => card.typeLine.includes('Elder Sphinx')).map((card) => card.id) : [])].filter((value): value is string => Boolean(value)).filter((value, index, values) => values.indexOf(value) === index), staged: [] }
+    const restored: RankingTable = { ...table, size: 10, ranked: Array.from({ length: 10 }, (_, index) => resolveName(preset.ranked[index] || '', cards)), honorable: [...preset.honorable.map((name) => resolveName(name, cards)), ...(preset.id === 'friends-ranking' ? cards.filter((card) => card.typeLine.includes('Elder Sphinx')).map((card) => card.id) : [])].filter((value): value is string => Boolean(value)).filter((value, index, values) => values.indexOf(value) === index), staged: [] }
     commit(tables.map((item) => item.id === id ? restored : item), 'Reset table')
   }
 
@@ -286,6 +288,17 @@ function App() {
     const table = tables.find((item) => item.id === id)
     if (!table || !table.staged.length || !window.confirm(`Clear staged cards from "${table.title}"?`)) return
     updateTable(id, (item) => ({ ...item, staged: [] }), 'Cleared staged cards')
+  }
+
+  function setTableSize(id: string, size: 5 | 10) {
+    const table = tables.find((item) => item.id === id)
+    if (!table || table.size === size) return
+    if (size === 5) {
+      const overflow = table.ranked.slice(5).filter((value): value is string => Boolean(value))
+      commit(tables.map((item) => item.id === id ? { ...item, size, ranked: [...item.ranked.slice(0, 5), ...Array(5).fill(null)], staged: [...item.staged, ...overflow.filter((value) => !item.staged.includes(value))] } : item), 'Switched to Top 5')
+    } else {
+      commit(tables.map((item) => item.id === id ? { ...item, size } : item), 'Switched to Top 10')
+    }
   }
 
   async function addCardsToTable(id: string) {
@@ -340,7 +353,7 @@ function App() {
   function addTable() {
     const title = window.prompt('Name this ranking table', 'My Ranking')?.trim()
     if (!title) return
-    const next: RankingTable = { id: makeId(), title, visible: true, compact: false, ranked: Array(10).fill(null), honorable: [], staged: [] }
+    const next: RankingTable = { id: makeId(), title, visible: true, compact: false, size: 10, ranked: Array(10).fill(null), honorable: [], staged: [] }
     commit([...tables, next], 'Added ranking table')
     setSelectedId(next.id)
   }
@@ -416,6 +429,7 @@ function App() {
                 onRename={(title) => updateTable(table.id, (item) => ({ ...item, title }), 'Renamed table')}
                 onToggleVisibility={() => updateTable(table.id, (item) => ({ ...item, visible: !item.visible }), table.visible ? 'Table hidden' : 'Table visible')}
                 onToggleCompact={() => updateTable(table.id, (item) => ({ ...item, compact: !item.compact }), table.compact ? 'Normal view' : 'Compact view')}
+                onSizeChange={(size) => setTableSize(table.id, size)}
                 onDuplicate={() => duplicateTable(table.id)}
                 onDelete={() => deleteTable(table.id)}
                 onReset={() => resetTable(table.id)}
@@ -460,7 +474,7 @@ function App() {
   )
 }
 
-function RankingTableView({ table, index, cards, presentation, selected, onSelect, onRename, onToggleVisibility, onToggleCompact, onDuplicate, onDelete, onReset, onClearTable, onAddCards, onClearCards, onMoveTable, onOpenCard, onMoveCard }: {
+function RankingTableView({ table, index, cards, presentation, selected, onSelect, onRename, onToggleVisibility, onToggleCompact, onSizeChange, onDuplicate, onDelete, onReset, onClearTable, onAddCards, onClearCards, onMoveTable, onOpenCard, onMoveCard }: {
   table: RankingTable
   index: number
   cards: Map<string, Card>
@@ -470,6 +484,7 @@ function RankingTableView({ table, index, cards, presentation, selected, onSelec
   onRename: (title: string) => void
   onToggleVisibility: () => void
   onToggleCompact: () => void
+  onSizeChange: (size: 5 | 10) => void
   onDuplicate: () => void
   onDelete: () => void
   onReset: () => void
@@ -482,7 +497,7 @@ function RankingTableView({ table, index, cards, presentation, selected, onSelec
 }) {
   const [renaming, setRenaming] = useState(false)
   const [title, setTitle] = useState(table.title)
-  const rankedCount = table.ranked.filter(Boolean).length
+  const rankedCount = table.ranked.slice(0, table.size).filter(Boolean).length
 
   return <article className={`ranking-table ${table.visible ? '' : 'is-hidden'} ${table.compact ? 'is-compact' : ''} ${selected ? 'is-selected' : ''}`} onClick={onSelect}>
     <header className="table-header">
@@ -498,6 +513,11 @@ function RankingTableView({ table, index, cards, presentation, selected, onSelec
         <button className="icon-button" onClick={onDuplicate} aria-label="Duplicate table">＋</button>
         <button className="icon-button" onClick={onReset} aria-label="Reset table">↺</button>
         <button className="icon-button danger" onClick={onDelete} aria-label="Delete table">×</button>
+        <div className="size-toggle" aria-label="Ranking size">
+          <span>Top</span>
+          <button className={table.size === 5 ? 'is-active' : ''} onClick={() => onSizeChange(5)}>5</button>
+          <button className={table.size === 10 ? 'is-active' : ''} onClick={() => onSizeChange(10)}>10</button>
+        </div>
         <button className="compact-toggle" onClick={onToggleCompact}>{table.compact ? 'Normal' : 'Compact'}</button>
         <button className="compact-toggle add-cards-button" onClick={onAddCards}>ADD CARDS</button>
         <button className="compact-toggle clear-table-button" onClick={onClearTable}>Clear Table</button>
@@ -505,7 +525,7 @@ function RankingTableView({ table, index, cards, presentation, selected, onSelec
     </header>
     {table.visible && <div className="table-body">
       <div className="ranking-slots">
-        {table.ranked.map((id, rank) => <RankSlot key={`${table.id}-${rank}`} tableId={table.id} rank={rank} card={id ? cards.get(id) : undefined} compact={table.compact} presentation={presentation} onOpenCard={onOpenCard} onMoveCard={onMoveCard} />)}
+        {table.ranked.slice(0, table.size).map((id, rank) => <RankSlot key={`${table.id}-${rank}`} tableId={table.id} rank={rank} card={id ? cards.get(id) : undefined} compact={table.compact} presentation={presentation} onOpenCard={onOpenCard} onMoveCard={onMoveCard} />)}
       </div>
       <DropZone id={`${table.id}::honorable`} className="table-honorable">
         <div className="subheading"><span>Honorable Mentions</span><span>{table.honorable.length}</span></div>

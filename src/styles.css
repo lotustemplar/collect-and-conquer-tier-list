@@ -45,6 +45,10 @@ main { max-width: 1920px; margin: 0 auto; padding: 24px clamp(20px, 4vw, 72px) 4
 .icon-button:disabled { opacity: .25; cursor: not-allowed; }
 .icon-button.danger:hover { border-color: var(--color-danger); color: var(--color-danger); background: rgba(228, 134, 126, .1); }
 .compact-toggle { padding: 5px 7px; color: var(--color-paper-muted); font-size: .67rem; }
+.size-toggle { display: flex; align-items: center; gap: 2px; color: var(--color-paper-muted); font-size: .67rem; }
+.size-toggle span { padding: 0 2px; color: var(--color-accent); font-weight: 800; letter-spacing: .05em; }
+.size-toggle button { min-width: 23px; padding: 4px 5px; border: 1px solid var(--color-rule-strong); border-radius: 3px; background: transparent; color: var(--color-paper-muted); cursor: pointer; font-size: .67rem; }
+.size-toggle button:hover, .size-toggle button.is-active { border-color: var(--color-accent); background: rgba(201, 169, 110, .1); color: var(--color-accent-bright); }
 .add-cards-button { border-color: rgba(201, 169, 110, .65); color: var(--color-accent-bright); }
 .clear-table-button { color: var(--color-danger); }
 .visibility-toggle { position: relative; display: grid; place-items: center; width: 24px; height: 26px; cursor: pointer; }

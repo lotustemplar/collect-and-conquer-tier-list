@@ -27,6 +27,7 @@ export type RankingTable = {
   title: string
   visible: boolean
   compact: boolean
+  size: 5 | 10
   ranked: Array<string | null>
   honorable: string[]
   staged: string[]
